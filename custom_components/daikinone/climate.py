@@ -97,10 +97,16 @@ class DaikinOneThermostat(DaikinOneEntity[DaikinThermostat], ClimateEntity):
             | ClimateEntityFeature.TURN_OFF
             | ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-            | ClimateEntityFeature.FAN_MODE
         )
         self._attr_hvac_modes = self.get_hvac_modes()
-        self._attr_fan_modes = [m.value for m in DaikinOneThermostatFanMode]
+
+        is_split = self._data.daikin.is_split(self._device.id)
+
+        # Fan-circulation control only applies to One+ thermostats. Mini splits
+        # have no user-controllable fan, so exposing a fan mode would be misleading.
+        if not is_split:
+            self._attr_supported_features |= ClimateEntityFeature.FAN_MODE
+            self._attr_fan_modes = [m.value for m in DaikinOneThermostatFanMode]
 
         # Vertical louver oscillation is only present on mini splits that report it.
         self._attr_swing_mode = None
@@ -386,14 +392,15 @@ class DaikinOneThermostat(DaikinOneEntity[DaikinThermostat], ClimateEntity):
         if heat_max is not None and cool_max is not None:
             self._attr_max_temp = min(heat_max, cool_max)
 
-        # fan settings
-        match self._device.fan_mode:
-            case DaikinThermostatFanMode.OFF:
-                self._attr_fan_mode = DaikinOneThermostatFanMode.OFF.value
-            case DaikinThermostatFanMode.ALWAYS_ON:
-                self._attr_fan_mode = DaikinOneThermostatFanMode.ALWAYS_ON.value
-            case DaikinThermostatFanMode.SCHEDULED:
-                self._attr_fan_mode = DaikinOneThermostatFanMode.SCHEDULED.value
+        # fan settings (thermostats only; mini splits don't expose FAN_MODE)
+        if ClimateEntityFeature.FAN_MODE in self._attr_supported_features:
+            match self._device.fan_mode:
+                case DaikinThermostatFanMode.OFF:
+                    self._attr_fan_mode = DaikinOneThermostatFanMode.OFF.value
+                case DaikinThermostatFanMode.ALWAYS_ON:
+                    self._attr_fan_mode = DaikinOneThermostatFanMode.ALWAYS_ON.value
+                case DaikinThermostatFanMode.SCHEDULED:
+                    self._attr_fan_mode = DaikinOneThermostatFanMode.SCHEDULED.value
 
         # swing (mini splits with vertical louver control)
         if self._device.swing_oscillating is not None:
