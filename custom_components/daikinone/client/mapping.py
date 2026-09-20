@@ -135,7 +135,7 @@ def map_split_thermostat(payload: DaikinDeviceDataResponse) -> DaikinThermostat:
     return DaikinThermostat(
         id=payload.id,
         location_id=payload.locationId,
-        name=payload.name,
+        name=payload.name.strip(),
         model=payload.model,
         firmware_version=payload.firmware,
         online=payload.online,
