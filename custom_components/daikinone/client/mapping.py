@@ -28,6 +28,7 @@ from custom_components.daikinone.client.wire import (
     capitalize,
     read,
 )
+from custom_components.daikinone.utils import Temperature
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +68,83 @@ def map_thermostat(payload: DaikinDeviceDataResponse) -> DaikinThermostat:
         air_quality_outdoor=map_air_quality_outdoor(payload),
         air_quality_indoor=map_air_quality_indoor(payload),
         equipment=map_equipment(payload),
+    )
+
+
+# ---------------------------------------------------------------------------
+# P1/P2 mini splits that expose no thermostat "mode" (e.g. DENEB / RA units).
+# These drive everything from indoor-unit (idu*) / outdoor-unit (odu*) fields,
+# with temperatures reported directly in Celsius rather than F * 10.
+# ---------------------------------------------------------------------------
+
+# iduOperatingMode uses the same encoding as the thermostat mode field.
+_SPLIT_MODE = {
+    1: DaikinThermostatMode.HEAT,
+    2: DaikinThermostatMode.COOL,
+    3: DaikinThermostatMode.AUTO,
+}
+
+
+def is_split_payload(data: dict) -> bool:
+    """True for P1/P2 mini splits that omit the thermostat 'mode' field."""
+    return "mode" not in data and "iduOperatingMode" in data
+
+
+def _celsius(data: dict, key: str) -> Temperature | None:
+    v = data.get(key)
+    return Temperature.from_celsius(v) if isinstance(v, (int, float)) else None
+
+
+def map_split_thermostat(payload: DaikinDeviceDataResponse) -> DaikinThermostat:
+    data = payload.data
+
+    on = bool(data.get("iduOnOff", False))
+    raw_mode = data.get("iduOperatingMode")
+    if not on:
+        mode = DaikinThermostatMode.OFF
+    else:
+        mode = _SPLIT_MODE.get(raw_mode, DaikinThermostatMode.UNKNOWN)
+        if mode is DaikinThermostatMode.UNKNOWN:
+            log.warning("Unknown iduOperatingMode=%r for split %s", raw_mode, payload.name)
+
+    # hvac action is cosmetic: report active heating/cooling when the compressor runs
+    comp_on = bool(data.get("oduCompOnOff", False))
+    odu_mode = data.get("oduOperatingMode")
+    if not on or not comp_on:
+        status = DaikinThermostatStatus.IDLE
+    elif mode is DaikinThermostatMode.HEAT or odu_mode == 1:
+        status = DaikinThermostatStatus.HEATING
+    elif mode is DaikinThermostatMode.COOL or odu_mode == 2:
+        status = DaikinThermostatStatus.COOLING
+    else:
+        status = DaikinThermostatStatus.IDLE
+
+    return DaikinThermostat(
+        id=payload.id,
+        location_id=payload.locationId,
+        name=payload.name,
+        model=payload.model,
+        firmware_version=payload.firmware,
+        online=payload.online,
+        capabilities={DaikinThermostatCapability.HEAT, DaikinThermostatCapability.COOL},
+        mode=mode,
+        status=status,
+        fan_mode=DaikinThermostatFanMode.OFF,
+        fan_speed=DaikinThermostatFanSpeed.UNKNOWN,
+        schedule=DaikinThermostatSchedule(enabled=bool(data.get("schedEnabled", False))),
+        indoor_temperature=_celsius(data, "iduRoomTemp"),
+        indoor_humidity=None,
+        set_point_heat=_celsius(data, "iduHeatSetpoint"),
+        set_point_heat_min=None,
+        set_point_heat_max=None,
+        set_point_cool=_celsius(data, "iduCoolSetpoint"),
+        set_point_cool_min=None,
+        set_point_cool_max=None,
+        outdoor_temperature=_celsius(data, "oduOutdoorTemp"),
+        outdoor_humidity=None,
+        air_quality_outdoor=None,
+        air_quality_indoor=None,
+        equipment={},
     )
 
 

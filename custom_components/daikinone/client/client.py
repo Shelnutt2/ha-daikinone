@@ -4,7 +4,11 @@ import copy
 import logging
 from typing import Any
 
-from custom_components.daikinone.client.mapping import map_thermostat
+from custom_components.daikinone.client.mapping import (
+    is_split_payload,
+    map_split_thermostat,
+    map_thermostat,
+)
 from custom_components.daikinone.client.models import (
     DaikinThermostat,
     DaikinThermostatFanMode,
@@ -26,6 +30,8 @@ class DaikinOne:
     """Manages connection to Daikin API and fetching device data."""
 
     __thermostats: dict[str, DaikinThermostat] = dict()
+    # device ids that are P1/P2 mini splits (need split-specific control writes)
+    __split_ids: set[str] = set()
 
     def __init__(self, creds: DaikinUserCredentials) -> None:
         self._transport = DaikinTransport(creds)
@@ -49,9 +55,20 @@ class DaikinOne:
             if not r.online and len(r.data) == 0:
                 log.warning(f"Skipping offline device with no data: {r.name} ({r.id})")
                 continue
-            self.__thermostats[r.id] = map_thermostat(r)
+            try:
+                if is_split_payload(r.data):
+                    self.__thermostats[r.id] = map_split_thermostat(r)
+                    self.__split_ids.add(r.id)
+                else:
+                    self.__thermostats[r.id] = map_thermostat(r)
+            except Exception:
+                log.exception(f"Failed to map device {r.name} ({r.id}); skipping")
 
         log.info(f"Cached {len(self.__thermostats)} thermostats")
+
+    def is_split(self, device_id: str) -> bool:
+        """Whether a device is a P1/P2 mini split (vs a One+ thermostat)."""
+        return device_id in self.__split_ids
 
     def get_thermostat(self, thermostat_id: str) -> DaikinThermostat:
         return copy.deepcopy(self.__thermostats[thermostat_id])
