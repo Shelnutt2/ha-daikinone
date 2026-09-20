@@ -76,8 +76,27 @@ class DaikinOne:
     def get_thermostats(self) -> dict[str, DaikinThermostat]:
         return copy.deepcopy(self.__thermostats)
 
+    # P1/P2 split control writes. iduOperatingMode uses the read encoding
+    # (1=heat, 2=cool, 3=auto); power is a separate iduOnOff flag.
+    _SPLIT_MODE_WRITE: dict[DaikinThermostatMode, dict[str, object]] = {
+        DaikinThermostatMode.OFF: {"iduOnOff": False},
+        DaikinThermostatMode.HEAT: {"iduOnOff": True, "iduOperatingMode": 1},
+        DaikinThermostatMode.COOL: {"iduOnOff": True, "iduOperatingMode": 2},
+        DaikinThermostatMode.AUTO: {"iduOnOff": True, "iduOperatingMode": 3},
+    }
+
     async def set_thermostat_mode(self, thermostat_id: str, mode: DaikinThermostatMode) -> None:
         """Set thermostat mode"""
+        if self.is_split(thermostat_id):
+            body = self._SPLIT_MODE_WRITE.get(mode)
+            if body is None:
+                raise ValueError(f"Unsupported mode for mini split: {mode}")
+            await self._transport.request(
+                url=f"{DAIKIN_API_URL_DEVICE_DATA}/{thermostat_id}",
+                method="PUT",
+                body=dict(body),
+            )
+            return
         await self._transport.request(
             url=f"{DAIKIN_API_URL_DEVICE_DATA}/{thermostat_id}",
             method="PUT",
@@ -95,6 +114,22 @@ class DaikinOne:
         if not heat and not cool:
             raise ValueError("At least one of heat or cool set points must be set")
 
+        if self.is_split(thermostat_id):
+            # Mini splits take per-mode setpoints on the raw idu* fields, in
+            # Celsius at 0.5 resolution. iduTargetTemp is the computed active
+            # value (read-only); iduHeat/CoolSetpoint are the settable ones.
+            body: dict[str, Any] = {}
+            if heat:
+                body["iduHeatSetpoint"] = round(heat.celsius * 2) / 2
+            if cool:
+                body["iduCoolSetpoint"] = round(cool.celsius * 2) / 2
+            await self._transport.request(
+                url=f"{DAIKIN_API_URL_DEVICE_DATA}/{thermostat_id}",
+                method="PUT",
+                body=body,
+            )
+            return
+
         payload: dict[str, Any] = {}
         if heat:
             payload["hspHome"] = heat.celsius
@@ -111,6 +146,11 @@ class DaikinOne:
 
     async def set_thermostat_fan_mode(self, thermostat_id: str, fan_mode: DaikinThermostatFanMode) -> None:
         """Set thermostat fan mode"""
+        if self.is_split(thermostat_id):
+            # P1/P2 mini splits do not support fan-circulation control (fan runs
+            # at the unit's own speed); ignore rather than sending a bad write.
+            log.debug("Ignoring fan mode set for mini split %s (unsupported)", thermostat_id)
+            return
         await self._transport.request(
             url=f"{DAIKIN_API_URL_DEVICE_DATA}/{thermostat_id}",
             method="PUT",
