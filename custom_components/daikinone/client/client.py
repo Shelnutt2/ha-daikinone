@@ -5,6 +5,8 @@ import logging
 from typing import Any
 
 from custom_components.daikinone.client.mapping import (
+    SPLIT_SWING_FIXED,
+    SPLIT_SWING_OSCILLATE,
     is_split_payload,
     map_split_thermostat,
     map_thermostat,
@@ -163,4 +165,22 @@ class DaikinOne:
             url=f"{DAIKIN_API_URL_DEVICE_DATA}/{thermostat_id}",
             method="PUT",
             body={"fanCirculateSpeed": fan_speed.value},
+        )
+
+    async def set_split_swing(self, thermostat_id: str, oscillate: bool) -> None:
+        """Set vertical louver oscillation on a mini split.
+
+        The louver position is stored per operating mode; set all of them
+        together so the setting is consistent regardless of the current mode
+        (0 = fixed, 15 = oscillate).
+        """
+        value = SPLIT_SWING_OSCILLATE if oscillate else SPLIT_SWING_FIXED
+        await self._transport.request(
+            url=f"{DAIKIN_API_URL_DEVICE_DATA}/{thermostat_id}",
+            method="PUT",
+            body={
+                "iduHeatAirDirectionUpDown": value,
+                "iduCoolAirDirectionUpDown": value,
+                "iduAutoAirDirectionUpDown": value,
+            },
         )

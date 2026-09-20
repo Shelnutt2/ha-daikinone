@@ -258,3 +258,6 @@ class DaikinThermostat(DaikinDevice):
     air_quality_outdoor: DaikinOneAirQualitySensorOutdoor | None
     air_quality_indoor: DaikinOneAirQualitySensorIndoor | None
     equipment: dict[str, DaikinEquipment]
+    # Vertical louver oscillation, for mini splits that support it. None means
+    # the device has no swing control (e.g. One+ thermostats).
+    swing_oscillating: bool | None = None

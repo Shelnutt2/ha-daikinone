@@ -84,6 +84,15 @@ _SPLIT_MODE = {
     3: DaikinThermostatMode.AUTO,
 }
 
+# Vertical louver is stored per operating mode; 0 = fixed, 15 = oscillate.
+_SPLIT_AIRDIR_FIELD = {
+    1: "iduHeatAirDirectionUpDown",
+    2: "iduCoolAirDirectionUpDown",
+    3: "iduAutoAirDirectionUpDown",
+}
+SPLIT_SWING_OSCILLATE = 15
+SPLIT_SWING_FIXED = 0
+
 
 def is_split_payload(data: dict) -> bool:
     """True for P1/P2 mini splits that omit the thermostat 'mode' field."""
@@ -119,6 +128,10 @@ def map_split_thermostat(payload: DaikinDeviceDataResponse) -> DaikinThermostat:
     else:
         status = DaikinThermostatStatus.IDLE
 
+    # vertical louver oscillation, read from the current operating mode's field
+    airdir_field = _SPLIT_AIRDIR_FIELD.get(raw_mode)
+    swing_oscillating = bool(data.get(airdir_field)) if airdir_field else False
+
     return DaikinThermostat(
         id=payload.id,
         location_id=payload.locationId,
@@ -145,6 +158,7 @@ def map_split_thermostat(payload: DaikinDeviceDataResponse) -> DaikinThermostat:
         air_quality_outdoor=None,
         air_quality_indoor=None,
         equipment={},
+        swing_oscillating=swing_oscillating,
     )
 
 

@@ -31,6 +31,10 @@ from custom_components.daikinone.utils import Temperature
 
 log = logging.getLogger(__name__)
 
+# Vertical louver swing options (mini splits only)
+SWING_FIXED = "fixed"
+SWING_OSCILLATE = "oscillate"
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -97,6 +101,12 @@ class DaikinOneThermostat(DaikinOneEntity[DaikinThermostat], ClimateEntity):
         )
         self._attr_hvac_modes = self.get_hvac_modes()
         self._attr_fan_modes = [m.value for m in DaikinOneThermostatFanMode]
+
+        # Vertical louver oscillation is only present on mini splits that report it.
+        self._attr_swing_mode = None
+        if self._device.swing_oscillating is not None:
+            self._attr_supported_features |= ClimateEntityFeature.SWING_MODE
+            self._attr_swing_modes = [SWING_FIXED, SWING_OSCILLATE]
 
         # These attributes must be initialized otherwise HA `CachedProperties` doesn't create a
         # backing prop. If they are not initialized, climate will error during setup because we support
@@ -286,6 +296,19 @@ class DaikinOneThermostat(DaikinOneEntity[DaikinThermostat], ClimateEntity):
             check=lambda t: t.fan_mode == target_fan_mode,
         )
 
+    async def async_set_swing_mode(self, swing_mode: str) -> None:
+        """Set vertical louver oscillation (mini splits)."""
+        oscillate = swing_mode == SWING_OSCILLATE
+
+        def update(t: DaikinThermostat):
+            t.swing_oscillating = oscillate
+
+        await self.update_state_optimistically(
+            operation=lambda: self._data.daikin.set_split_swing(self._device.id, oscillate),
+            optimistic_update=update,
+            check=lambda t: t.swing_oscillating == oscillate,
+        )
+
     async def async_get_device(self) -> DaikinThermostat:
         return self._data.daikin.get_thermostat(self._device.id)
 
@@ -371,3 +394,7 @@ class DaikinOneThermostat(DaikinOneEntity[DaikinThermostat], ClimateEntity):
                 self._attr_fan_mode = DaikinOneThermostatFanMode.ALWAYS_ON.value
             case DaikinThermostatFanMode.SCHEDULED:
                 self._attr_fan_mode = DaikinOneThermostatFanMode.SCHEDULED.value
+
+        # swing (mini splits with vertical louver control)
+        if self._device.swing_oscillating is not None:
+            self._attr_swing_mode = SWING_OSCILLATE if self._device.swing_oscillating else SWING_FIXED
