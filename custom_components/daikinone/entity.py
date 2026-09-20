@@ -44,6 +44,10 @@ class DaikinOneEntity[D: DaikinDevice](Entity):
         """Return the name of the device."""
         match self._device:
             case DaikinThermostat():
+                # Mini splits aren't thermostats; use the bare room name so both the
+                # UI and voice assistants read naturally (e.g. "Guest Bedroom").
+                if self._data.daikin.is_split(self._device.id):
+                    return self._device.name
                 return f"{self._device.name} Thermostat"
             case DaikinEquipment():
                 thermostat = self._data.daikin.get_thermostat(self._device.thermostat_id)
